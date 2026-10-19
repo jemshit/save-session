@@ -1,0 +1,21 @@
+{
+  "name": "save-session",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Save, list, and resume coding-agent sessions by project title across Pi, Claude Code, Codex, Antigravity CLI, and OpenCode.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jemshit/save-session.git"
+  },
+  "keywords": [
+    "pi-package",
+    "agent-skills",
+    "sessions"
+  ],
+  "pi": {
+    "skills": [
+      "./skills"
+    ]
+  }
+}

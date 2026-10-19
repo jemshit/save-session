@@ -1,0 +1,24 @@
+{
+  "name": "save-session",
+  "description": "Save, list, and resume AI coding-agent sessions by project title \u2014 one ledger per harness: Pi, Claude Code, Codex, Antigravity, OpenCode.",
+  "owner": {
+    "name": "Jemshit Iskanderov"
+  },
+  "plugins": [
+    {
+      "name": "save-session",
+      "source": "./",
+      "description": "Save, list, and resume AI coding-agent sessions by project title \u2014 one ledger per harness: Pi, Claude Code, Codex, Antigravity, OpenCode.",
+      "version": "0.1.0",
+      "license": "MIT",
+      "homepage": "https://github.com/jemshit/save-session",
+      "repository": "https://github.com/jemshit/save-session",
+      "keywords": [
+        "sessions",
+        "resume",
+        "bookmarks"
+      ],
+      "category": "productivity"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+# The shell wrappers are executed by bash. A CRLF checkout makes the shebang fail with
+# "/usr/bin/env: bad interpreter", which silently kills every lane that uses them.
+*.sh text eol=lf
+
+# Keep text files LF everywhere so diffs, the drift check, and byte comparisons stay stable
+# across platforms.
+*.py   text eol=lf
+*.md   text eol=lf
+*.json text eol=lf

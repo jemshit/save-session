@@ -1,0 +1,4 @@
+interface:
+  display_name: "Save Session"
+  short_description: "Save, list, and resume agent sessions"
+  default_prompt: "Use $save-session to save this session under a project title, or to list and resume a previously saved one."
