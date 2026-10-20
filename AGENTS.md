@@ -10,6 +10,19 @@ A cross-harness agent skill (`skills/save-session/`) that saves, lists, and resu
 sessions by project title. It runs on Pi, Claude Code, Codex, Antigravity CLI, and OpenCode, on
 Linux, macOS, and Windows.
 
+## Harness validation status
+
+Keep validation history here rather than in the user-facing README. These statements describe the
+durable scope of what has been exercised; anything not listed is untested rather than working.
+
+| Harness | Validation status |
+|---|---|
+| Pi | save, list, resume lookup, duplicate handling, and exact-ID resume have been exercised |
+| OpenCode | save, list, resume lookup, duplicate handling, and exact-ID resume have been exercised |
+| Codex | real session creation, live-store detection, and exact-ID resume have been exercised; ledger save and duplicate handling use deterministic checks rather than a prompt-level run |
+| Claude Code | real session creation, live-store detection, exact-ID resume, and plugin validation have been exercised; ledger save and duplicate handling use deterministic checks rather than a prompt-level run |
+| Antigravity CLI | detector behavior uses synthetic stores; the full workflow has not been exercised end-to-end, and current installs use storage the detector cannot yet read |
+
 ## Invariants
 
 **1. Everything must be OS-neutral.** This repo was written on macOS and has already shipped
@@ -49,7 +62,7 @@ machine this was built on, or which CLI happened to be signed in while working o
 and not documentation. What *is* required is the other half: any matrix or coverage claim must
 state what was measured and what blocked the rest, per harness, because an empty cell with no
 reason reads as "not applicable" when it usually means "not run". `tools/check_invariants.py`
-bans the narrative phrasings and the README's matrix carries the caveats.
+bans the narrative phrasings and the validation table above carries the caveats.
 
 **4. `SKILL.md` is authoritative; `references/decision-flow.md` is derived.** The figures must
 not drift from the rules, so `scripts/check_flow_doc.py` verifies every decision point appears
@@ -122,6 +135,7 @@ names, resume commands, and documented behaviour.
 python3 tools/check_invariants.py          # content, history, docs, frontmatter
 python3 tools/test_platform_helpers.py     # path matching, path comparison, record parsing, arguments
 python3 tools/test_detectors.py            # what each detector returns, and what it refuses to return
+python3 tools/test_save_session.py          # save conflicts, locking, atomic writes, exact-id lookup
 python3 tools/check_detector_output.py     # detector output contract against this machine's stores
 cd skills/save-session && python3 scripts/check_flow_doc.py
 ```
@@ -134,8 +148,17 @@ not enough, since this project has been wrong about Windows three times.
 ## Layout
 
 ```
-skills/save-session/     the skill: SKILL.md, references/, scripts/, agents/openai.yaml
-tools/                   small checks and tests, kept out of the installed skill
+skills/save-session/
+├── SKILL.md                       the authoritative skill instructions and harness tables
+├── agents/openai.yaml             Codex-facing skill metadata
+├── references/decision-flow.md    Mermaid figures derived from SKILL.md
+└── scripts/
+    ├── check_flow_doc.py          checks that the figures and SKILL.md stay in sync
+    ├── detect_session.py          detects and validates session metadata
+    ├── find_session.py            lists records and finds sessions by title or exact id
+    ├── record_store.py            shared ledger parsing, locking, and atomic-write helpers
+    └── save_session.py            transactional save interface with conflict reporting
+tools/                             contributor checks and tests, excluded from installation
 ```
 
 `tools/README.md` lists the checks that remain, and says why the lane harness was removed.

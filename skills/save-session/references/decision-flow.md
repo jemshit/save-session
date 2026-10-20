@@ -33,34 +33,25 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    S(["Mode 1 - save"]) --> DETSUB["detection subroutine<br/>id, model, dir, saved and records_dir<br/>see Figure 3"]
-    DETSUB --> QID{"does the request name a session id"}
-    QID -->|"yes"| USERID["use it verbatim<br/>enrich via detect_session.py --id<br/>never substitute a detected id"]
-    QID -->|"no"| QDET{"is detection authoritative<br/>pi env var means yes"}
-    QDET -->|"yes"| DETID["use the detected id"]
-    QDET -->|"no"| ASKID{{"ASK - confirm or correct<br/>show the detected id and its evidence<br/>working-directory/store results can be stale<br/>or ambiguous with concurrent sessions"}}
-    ASKID --> DETID
-    USERID --> HASTITLE
-    DETID --> HASTITLE
-    HASTITLE{"did the request already<br/>supply a project title"}
-    HASTITLE -->|"yes"| LOOKUP
+    S(["Mode 1 - save"]) --> HASTITLE{"did the request already<br/>supply a project title"}
     HASTITLE -->|"no"| TITLE{{"ASK - project title<br/>required, keep the user's wording<br/>ask only for what is missing"}}
-    TITLE --> LOOKUP{"is this session_id already in<br/>this harness's record file"}
-    LOOKUP -->|"no"| CREATE{"does the record file exist"}
-    CREATE -->|"no"| MKFILE["create the file with its top heading"]
-    CREATE -->|"yes"| APPEND
-    MKFILE --> APPEND{"is the requested title already<br/>used by a different session"}
-    APPEND -->|"no"| NEW["append a new entry"]
-    APPEND -->|"yes"| NEWN["append as My Project - N<br/>highest existing suffix plus one"]
-    LOOKUP -->|"yes, same title"| UPD["update that entry in place<br/>refresh saved, model and dir"]
-    LOOKUP -->|"yes, different title"| ANN{{"ASK - announce first<br/>already saved as X: ignore or replace"}}
-    ANN -->|"ignore"| NOOP["change nothing<br/>confirm nothing was written"]
-    ANN -->|"replace"| REPL["retitle the entry there<br/>refresh model and saved date"]
-    NEW --> DONE
-    NEWN --> DONE
-    UPD --> DONE
-    NOOP --> DONE
-    REPL --> DONE(["confirm - title, session id, file,<br/>and created versus updated"])
+    HASTITLE -->|"yes"| RUN
+    TITLE --> RUN["run save_session.py<br/>pass a user-provided id verbatim<br/>do not read the ledger"]
+    RUN --> SCRIPT["inside the writer: detect and validate<br/>lock, parse, apply exact rules,<br/>validate and atomically replace"]
+    SCRIPT --> RESULT{"inside exact rules: create the file with its top heading;<br/>exact title collision uses highest existing suffix plus one<br/>JSON status and exit code"}
+    RESULT -->|"created / updated in place / replaced<br/>exit 0"| DONE(["confirm - title, session id, file,<br/>and action taken"])
+    RESULT -->|"confirm_detected_session<br/>exit 2"| ASKID{{"ASK - confirm or correct<br/>show the detected id and its evidence<br/>then rerun with --id"}}
+    ASKID --> RUN
+    RESULT -->|"session_has_different_title<br/>exit 2"| ANN{{"ASK - already saved as X<br/>ignore or replace"}}
+    ANN -->|"ignore"| IGNORE["do not rerun the script<br/>report existing title unchanged<br/>and nothing written"]
+    ANN -->|"replace"| REPLACE["rerun with --replace-title<br/>refresh saved, model and dir"]
+    IGNORE --> DONE
+    REPLACE --> RUN
+    RESULT -->|"similar_title<br/>exit 2"| SIMILAR{{"ASK - use an existing exact spelling<br/>or keep separate"}}
+    SIMILAR -->|"existing spelling"| RUN
+    SIMILAR -->|"keep separate"| ACCEPT["rerun with --accept-similar"]
+    ACCEPT --> RUN
+    RESULT -->|"record_locked / other error<br/>exit 1"| ERROR(["report the error; no write<br/>never edit the ledger as a workaround"])
 ```
 
 ## Figure 2 — Mode 2, find and resume

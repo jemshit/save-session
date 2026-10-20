@@ -45,20 +45,22 @@ DECISION_POINTS = [
     # artifact shape
     ("entry-shape-heading", "# sessions —", "# sessions —"),
     ("entry-shape-four-fields", "exactly these four fields", "exactly the four fields"),
-    ("entry-shape-create-file", "create the file with its top heading", "create the file with its top heading"),
+    ("entry-shape-create-file", "file's top heading names", "create the file with its top heading"),
     ("entry-shape-timeline", "file order is the timeline", "file order is the timeline"),
     # Mode 1 - save
-    ("m1-user-id-wins", "wins verbatim", "use it verbatim"),
-    ("m1-heuristic-confirms", "confirm or correct", "confirm or correct"),
-    ("m1-authoritative-direct", "save directly", "is detection authoritative"),
+    ("m1-user-id-wins", "wins verbatim", "provided id verbatim"),
+    ("m1-heuristic-confirms", "confirm_detected_session", "confirm_detected_session"),
     ("m1-title-required", "project title from the user", "ask - project title"),
     ("m1-title-supplied-bypass", "if the request doesn't include one", "did the request already"),
-    ("m1-update-same-title", "update, don't append", "update that entry in place"),
+    ("m1-update-same-title", "update, don't append", "updated in place"),
     ("m1-ask-ignore-replace", "ignore", "ignore or replace"),
-    ("m1-replace-path", "replace", "retitle the entry"),
-    ("m1-ignore-path", "keep the existing entry exactly as it is", "change nothing"),
+    ("m1-replace-path", "--replace-title", "--replace-title"),
+    ("m1-ignore-path", "do not call\n     the script again", "do not rerun the script"),
     ("m1-numbering", "highest existing suffix", "highest existing suffix"),
     ("m1-confirm-reply", "title, session id", "title, session id"),
+    ("m1-script-writes", "do **not** read the record file", "do not read the ledger"),
+    ("m1-similar-title", "similar_title", "similar_title"),
+    ("m1-lock-error", "record_locked", "record_locked"),
     # Mode 2 - find and resume
     ("m2-by-title", "find_session.py --title", "find_session.py --title"),
     ("m2-listing", "--list", "--list"),
@@ -81,12 +83,10 @@ DECISION_POINTS = [
 ]
 
 MODE1_STEPS = {
-    1: ["det-file-reads-first", "m1-heuristic-confirms", "m1-authoritative-direct"],
-    2: ["m1-user-id-wins", "m1-heuristic-confirms", "det-ask-fallback"],
-    3: ["m1-title-required", "m1-title-supplied-bypass", "inv-ask-only-missing"],
-    4: ["m1-update-same-title", "m1-ask-ignore-replace", "m1-replace-path",
-        "m1-ignore-path", "m1-numbering", "entry-shape-create-file"],
-    5: ["m1-confirm-reply"],
+    1: ["m1-title-required", "m1-script-writes", "m1-user-id-wins"],
+    2: ["m1-heuristic-confirms", "m1-ask-ignore-replace", "m1-replace-path",
+        "m1-ignore-path", "m1-similar-title", "m1-lock-error"],
+    3: ["m1-confirm-reply"],
 }
 
 MODE2_STEPS = {

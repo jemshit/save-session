@@ -24,6 +24,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import record_store as store
+
 HOME = Path.home()
 UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 CHUNK = 64 * 1024
@@ -717,31 +723,15 @@ HARNESSES = {
     "opencode": detect_opencode,
 }
 
-RECORD_HEADINGS = {
-    "pi.md": "# Sessions — Pi",
-    "claude-code.md": "# Sessions — Claude Code",
-    "codex.md": "# Sessions — Codex",
-    "antigravity.md": "# Sessions — Antigravity",
-    "opencode.md": "# Sessions — OpenCode",
-}
-RECORD_FIELDS = {"saved", "session_id", "model", "dir"}
-REQUIRED_RECORD_FIELDS = {"saved", "session_id", "dir"}
-SAVED_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+RECORD_HEADINGS = {filename: heading for filename, heading in store.HARNESSES.values()}
+RECORD_FIELDS = store.RECORD_FIELDS
+REQUIRED_RECORD_FIELDS = store.REQUIRED_RECORD_FIELDS
+SAVED_RE = store.SAVED_RE
 
 
 def record_entries(text):
     """Return parsed ledger entries and shape problems without discarding duplicate fields."""
-    entries, current = [], None
-    for line in text.splitlines():
-        if line.startswith("## "):
-            current = {"title": line[3:].strip(), "fields": {}, "duplicates": []}
-            entries.append(current)
-        elif current is not None and line.startswith("- ") and ":" in line:
-            key, value = (part.strip() for part in line[2:].split(":", 1))
-            if key in current["fields"]:
-                current["duplicates"].append(key)
-            current["fields"][key] = value
-    return entries
+    return store.parse_record(text)[0]
 
 
 def check_mode():
@@ -752,9 +742,9 @@ def check_mode():
     contents = {}
     for f in files:
         try:
-            text = f.read_text(encoding="utf-8-sig", errors="ignore")
+            text = f.read_text(encoding="utf-8-sig")
             unreadable = None
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             # A locked or permission-denied record file must not be reported as an empty
             # one: "the records are gone" is exactly the failure this command exists to
             # surface, and on Windows a held-open file is routine.
@@ -785,38 +775,12 @@ def check_mode():
     for f, entry in zip(files, report["files"]):
         if "unreadable" in entry:
             continue
-        text = contents[f]
         expected_heading = RECORD_HEADINGS.get(f.name.lower())
-        first_line = text.splitlines()[0] if text.splitlines() else ""
         if expected_heading is None:
             problems.append(f"{f.name}: unknown harness record filename")
-        elif first_line != expected_heading:
-            problems.append(f"{f.name}: expected top heading {expected_heading!r}")
-        for item in record_entries(text):
-            label = f"{f.name} entry {item['title']!r}"
-            if not item["title"]:
-                problems.append(f"{f.name}: entry has an empty title")
-            if item["duplicates"]:
-                problems.append(f"{label}: duplicate field(s) {sorted(set(item['duplicates']))}")
-            fields = item["fields"]
-            unknown = sorted(set(fields) - RECORD_FIELDS)
-            if unknown:
-                problems.append(f"{label}: unknown field(s) {unknown}")
-            missing = sorted(REQUIRED_RECORD_FIELDS - set(fields))
-            if missing:
-                problems.append(f"{label}: missing required field(s) {missing}")
-            empty = sorted(key for key, value in fields.items() if key in RECORD_FIELDS and not value)
-            if empty:
-                problems.append(f"{label}: empty field(s) {empty}")
-            saved = fields.get("saved")
-            if saved and not SAVED_RE.fullmatch(saved):
-                problems.append(f"{label}: saved must be UTC YYYY-MM-DDTHH:MM:SSZ")
-    for entry in report["files"]:
-        if entry["duplicate_session_ids"]:
-            problems.append(
-                f"{entry['file']}: duplicate session id(s) {entry['duplicate_session_ids']} — "
-                f"one entry per session id is the rule"
-            )
+        else:
+            _, file_problems = store.validate_record(contents[f], expected_heading)
+            problems.extend(f"{f.name}: {problem}" for problem in file_problems)
     if problems:
         report["ok"] = False
         report["problems"] = problems

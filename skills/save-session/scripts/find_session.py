@@ -5,6 +5,7 @@ Usage:
     find_session.py --title "finance cashflow"               # find by title (all files)
     find_session.py --title "..." --harness pi               # ...within one harness's file
     find_session.py --title "..." --pick latest              # ...only the newest match of that title
+    find_session.py --session-id <id>                        # exact id lookup
     find_session.py --list                                    # list this harness's saved entries
     find_session.py --list --harness <harness>               # list one harness's entries
     find_session.py --list --all                             # list every harness's entries
@@ -25,13 +26,13 @@ import re
 import sys
 from pathlib import Path
 
-HARNESS_BY_FILE = {
-    "pi.md": "pi",
-    "claude-code.md": "claude-code",
-    "codex.md": "codex",
-    "antigravity.md": "antigravity",
-    "opencode.md": "opencode",
-}
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import record_store as store
+
+HARNESS_BY_FILE = store.HARNESS_BY_FILE
 
 RESUME = {
     "pi": "pi --session {sid}",
@@ -73,6 +74,16 @@ def harness_of(path, text):
     return path.stem
 
 
+def entry_pairs(parsed):
+    entries = []
+    for entry in parsed:
+        fields = dict(entry["fields"])
+        if entry["duplicates"]:
+            fields["_invalid"] = True
+        entries.append((entry["title"], fields))
+    return entries
+
+
 def parse_entries(text):
     """(entries, problems) where entries are (title, fields) pairs.
 
@@ -80,22 +91,8 @@ def parse_entries(text):
     the last value silently loses the first id — so it is reported instead. This happened here:
     a malformed record merged two sessions and a session id vanished without a word.
     """
-    entries, cur, problems = [], None, []
-    for line in text.splitlines():
-        if line.startswith("## "):
-            cur = (line[3:].strip(), {})
-            entries.append(cur)
-        elif cur is not None and line.startswith("- "):
-            body = line[2:].strip()
-            if ":" in body:
-                key, value = (part.strip() for part in body.split(":", 1))
-                if key in cur[1]:
-                    problems.append(
-                        f"entry {cur[0]!r} has more than one {key}: line "
-                        f"({cur[1][key]!r} and {value!r}; entry is unusable)"
-                    )
-                    cur[1]["_invalid"] = True
-                cur[1][key] = value
+    parsed, problems = store.parse_record(text)
+    entries = entry_pairs(parsed)
     return entries, problems
 
 
@@ -125,18 +122,25 @@ def main():
         pass
     ap = argparse.ArgumentParser(description="Find and list saved sessions")
     ap.add_argument("--title", default=None, help="project title to look up (filters --list too)")
+    ap.add_argument("--session-id", default=None, help="exact session id to look up")
+    ap.add_argument("--list", action="store_true", help="list saved entries")
     ap.add_argument("--harness", choices=sorted(set(HARNESS_BY_FILE.values())), default=None)
     ap.add_argument("--sessions-dir", default=None)
     ap.add_argument("--pick", choices=["latest", "all"], default="all",
                     help="latest: only the most recently saved match of a --title lookup")
-    ap.add_argument("--list", action="store_true", help="list saved entries instead of title search")
     ap.add_argument("--all", action="store_true", help="with --list: every harness's file")
+    ap.add_argument("--json", action="store_true",
+                    help="print compact JSON only, without the human summary")
     args = ap.parse_args()
 
-    if not args.title and not args.list:
-        ap.error("nothing to do: pass --title <name> or --list")
+    if not args.title and args.session_id is None and not args.list:
+        ap.error("nothing to do: pass --title <name>, --session-id <id>, or --list")
     if args.title is not None and not args.title.strip():
         ap.error("--title needs a non-empty value; a blank title would match every entry")
+    if args.session_id is not None and not args.session_id.strip():
+        ap.error("--session-id needs a non-empty value")
+    if args.session_id is not None and (args.title is not None or args.list):
+        ap.error("--session-id is mutually exclusive with --title and --list")
     if args.all and args.harness:
         ap.error("--all and --harness are mutually exclusive")
     if args.all and not args.list:
@@ -145,6 +149,8 @@ def main():
         # Previously this was silently ignored, which reads as "the newest was used" when every
         # entry was in fact listed. A flag that does nothing must say so.
         ap.error("--pick applies to a --title lookup; --list shows every entry")
+    if args.session_id is not None and args.pick != "all":
+        ap.error("--pick applies to a --title lookup")
 
     base = Path(os.path.expanduser(args.sessions_dir)) if args.sessions_dir else sessions_dir()
 
@@ -165,12 +171,14 @@ def main():
             problems.append(f"record directory unreadable ({type(exc).__name__}: {exc})")
         for f in files:
             try:
-                text = f.read_text(errors="ignore", encoding="utf-8-sig")
-            except OSError as exc:
+                text = f.read_text(encoding="utf-8-sig")
+            except (OSError, UnicodeError) as exc:
                 problems.append(f"{f.name}: unreadable ({type(exc).__name__}: {exc})")
                 continue
             harness = harness_of(f, text)
-            entries, file_problems = parse_entries(text)
+            expected = store.HARNESSES.get(harness, (None, None))[1]
+            parsed, file_problems = store.validate_record(text, expected)
+            entries = entry_pairs(parsed)
             problems += [f"{f.name}: {p}" for p in file_problems]
             if args.harness and harness != args.harness:
                 continue
@@ -182,6 +190,8 @@ def main():
                     lowered = title.lower()
                     if query not in lowered and lowered not in query:
                         continue
+                if args.session_id is not None and fields.get("session_id") != args.session_id:
+                    continue
                 matches.append(to_match(f, harness, title, fields))
 
     matches.sort(key=lambda m: (m.get("saved") or "",))
@@ -190,22 +200,30 @@ def main():
     for m in matches:
         m["recommended"] = m is matches[-1]
 
-    scope = ("list " + (args.harness or "all harnesses")) if args.list else f"find {args.title!r}"
+    if args.list:
+        scope = "list " + (args.harness or "all harnesses")
+    elif args.session_id is not None:
+        scope = f"find exact session id {args.session_id!r}"
+    else:
+        scope = f"find {args.title!r}"
     payload = {"sessions_dir": str(base), "scope": scope, "matches": matches}
     if problems:
         # Loud, not silent: a malformed record must not quietly lose a session id.
         payload["problems"] = problems
-    print(json.dumps(payload, indent=2))
+    print(json.dumps(payload, ensure_ascii=False,
+                     separators=(",", ":") if args.json else None,
+                     indent=None if args.json else 2))
     for problem in problems:
         print(f"warning: {problem}", file=sys.stderr)
-    for m in matches:
-        tag = "  <- most recent" if m["recommended"] and len(matches) > 1 else ""
-        resume = m["resume"] or "(no session id recorded — cannot build a resume command)"
-        print(f"- [{m['harness']}] {m['title']}  (saved {m['saved']})  ->  {resume}{tag}")
-        if m["dir"]:
-            # State the value without pretending one shell's quoting/change-drive rules are
-            # portable to bash, PowerShell, and cmd.exe.
-            print(f'    working directory: {m["dir"]} (resume from this directory)')
+    if not args.json:
+        for m in matches:
+            tag = "  <- most recent" if m["recommended"] and len(matches) > 1 else ""
+            resume = m["resume"] or "(no session id recorded — cannot build a resume command)"
+            print(f"- [{m['harness']}] {m['title']}  (saved {m['saved']})  ->  {resume}{tag}")
+            if m["dir"]:
+                # State the value without pretending one shell's quoting/change-drive rules are
+                # portable to bash, PowerShell, and cmd.exe.
+                print(f'    working directory: {m["dir"]} (resume from this directory)')
     if problems:
         sys.exit(1)
     if not matches:

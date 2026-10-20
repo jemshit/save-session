@@ -4,7 +4,7 @@ description: Save the active coding session (session ID, model, working director
 license: MIT
 metadata:
   author: "Jemshit Iskanderov"
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # save-session
@@ -64,9 +64,8 @@ appended oldest-first; file order is the timeline.
 ## Entry identity and title handling
 
 A record entry is identified by its **`session_id`**, not its title — the id is what a
-resume command consumes; the title is only the human-facing label. Two entries pointing at
-the same session would be redundant bookkeeping, so **before writing, scan the harness file
-for an existing entry with the same `session_id`**:
+resume command consumes; the title is only the human-facing label. `save_session.py` enforces
+these rules without printing the ledger into the agent's context:
 
 - **Already recorded → update, don't append.** Refresh that entry's `saved` timestamp and
   correct `model`/`dir` if they changed. Keep the entry in place (file order is the
@@ -76,7 +75,7 @@ for an existing entry with the same `session_id`**:
 - **Already recorded under a *different title* → ask first, never silently retitle.** Say:
   this session is already saved as "<existing title>" — and ask whether to **ignore**
   (keep the existing entry exactly as it is) or **replace** (retitle the entry to the new
-  title and refresh its `model` and `saved` date). One entry per session id, always; the
+  title and refresh its `model`, `dir`, and `saved` date). One entry per session id, always; the
   `- N` numbering is only for *different* session ids sharing a title.
 - **Not recorded → append.** The project title comes from the user and is required — ask
   for it if the request doesn't include one; keep the user's wording. If that title already
@@ -84,6 +83,10 @@ for an existing entry with the same `session_id`**:
   overwriting: `My Project`, `My Project - 2`, `My Project - 3`, … (highest existing
   suffix + 1). Several live sessions on one project is normal; each gets its own entry so a
   later lookup can show all of them.
+- **Similar but non-identical title → ask first.** Case/whitespace-only differences and a
+  single insertion, deletion, or substitution may be a typo. The script reports the nearby
+  titles but never merges them. The user can choose an existing exact spelling or keep the
+  requested spelling with `--accept-similar`.
 
 ## Harness reference
 
@@ -188,33 +191,41 @@ missing `model` is fine to omit, but never fabricate a session id.
 
 ## Mode 1 — save
 
-1. Identify the harness; detect `session_id`, `model`, `dir`, `saved`, and `records_dir`
-   (file reads first — see "Detecting without a shell"). Use the returned `saved` timestamp
-   and write under the returned `records_dir`; do not reconstruct either value yourself.
-2. **Resolve the session id, most-trusted source first:**
-   - **The request names an id** → it wins verbatim; never substitute a detection for it.
-     Validate and enrich with `detect_session.py --id <id> --harness <harness>` (adds the
-     model; `validated: false` only means the id isn't in the local store — possibly a
-     session from another machine). Surface that, and save exactly the id the user gave.
-   - **Detection is authoritative** (`heuristic: false` — Pi's env var names this exact
-     session) → save directly and show the id in the confirmation.
-   - **Detection is heuristic** (`heuristic: true`) → the source is tied to the working
-     directory, but several concurrent sessions there are normal and environment hints can
-     be stale. So **show the detected id and its source, and ask the user to confirm or
-     correct it before writing** — combine that ask with the title ask in one message.
-     Pointers: Claude Code's env value or `/resume` picker, `/status` in Codex, the `/resume`
-     picker in agy, `/sessions` in OpenCode, `/session` in Pi.
-3. Get the project title from the user (required).
-4. Look the `session_id` up in the harness file: not recorded → **append**, and if the file
-   does not exist yet, create the file with its top heading first; recorded under
-   the requested title → **update in place**; recorded under a *different title* → say it's
-   already saved there and **ask ignore or replace** ("Entry identity and title handling").
-5. Confirm in your reply: title, session id, the file, and whether you created a new entry
-   or updated an existing one.
+1. Get the project title from the user (required), then run the bundled writer. Pass the harness
+   you are running in, any id named by the request, and `--sessions-dir` when the request names a
+   destination; environment auto-detection is only a fallback:
 
-Do the detection yourself, and ask only for what it cannot produce: the project title always,
-and — when detection is heuristic — confirmation of the id in step 2. Never ask for a value
-detection has already resolved, and never present a guess as a resolved value.
+   ```bash
+   python3 <skill-dir>/scripts/save_session.py --title "<project title>" --harness <harness> [--id <id>] [--sessions-dir <dir>]
+   ```
+
+   Do **not** read the record file or the script source during a normal save. The writer performs
+   exact-id lookup, validation, numbering, locking, and atomic replacement internally and prints
+   one compact JSON object. Exit `0` means completed, exit `1` means an error and no write, and
+   exit `2` means `needs_confirmation` and no write.
+2. Interpret the result:
+   - `created` / `updated` → report the returned title, id, and file.
+   - `confirm_detected_session` → show the detected id and source; after the user confirms,
+     rerun with that exact `--id`. A working-directory/store result can be stale when several
+     sessions share a directory.
+   - `session_has_different_title` → ask **ignore** or **replace**. On **ignore**, do not call
+     the script again: report that the returned `existing_title` remains unchanged and nothing
+     was written. On **replace**, rerun with `--replace-title`.
+   - `similar_title` → show the returned nearby titles. Rerun with the chosen exact spelling,
+     or with the requested spelling plus `--accept-similar` if the user wants it kept separate.
+   - `record_locked` → confirm no save operation is still running; only then remove the exact
+     lock file reported by the script and retry. Never remove another harness's lock.
+   - any other error → report it; do not edit the Markdown as a workaround.
+3. Confirm in your reply: title, session id, file, and whether the script created, updated,
+   replaced, or ignored the entry.
+
+A user-provided id still wins verbatim. A local `validated: false` can mean the session came
+from another machine; surface it, but do not substitute another id. Without a runnable Python
+interpreter, follow the same rules manually as a last resort and validate with
+`detect_session.py --check` when execution becomes available.
+
+`--ignore-existing` remains available for a programmatic caller that explicitly wants a locked,
+structured revalidation of the no-op. The normal agent flow does not use it.
 
 ## Mode 2 — find & resume
 
@@ -225,8 +236,9 @@ detection has already resolved, and never present a guess as a resolved value.
 2. Use the bundled script for either (it never modifies records):
 
    ```bash
-   python3 <skill-dir>/scripts/find_session.py --list                # current harness (auto-detects; --harness/--all to override)
-   python3 <skill-dir>/scripts/find_session.py --title "<project name>" [--pick latest]
+   python3 <skill-dir>/scripts/find_session.py --list --json         # current harness (auto-detects; --harness/--all to override)
+   python3 <skill-dir>/scripts/find_session.py --title "<project name>" [--pick latest] --json
+   python3 <skill-dir>/scripts/find_session.py --session-id <id> --json
    # → {"matches": [{"file", "harness", "title", "session_id", "model", "dir", "saved", "resume"}]}
    # no matches: exit code 1 — say so plainly rather than guessing
    ```

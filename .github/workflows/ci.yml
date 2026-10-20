@@ -42,6 +42,7 @@ jobs:
         run: |
           python tools/test_platform_helpers.py
           python tools/test_detectors.py
+          python tools/test_save_session.py
 
       - name: Drift check (SKILL.md <-> decision-flow.md)
         working-directory: skills/save-session

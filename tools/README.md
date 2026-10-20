@@ -10,12 +10,14 @@ session id, a Windows path needle that could never match, a `.cmd` shim that nev
 | `check_detector_output.py` | each detector against this machine's real stores, asserting the documented output envelope (`ok`, `heuristic`, `source`/`reason`) |
 | `test_platform_helpers.py` | path matching, path comparison, record parsing, command-line arguments |
 | `test_detectors.py` | what each detector returns, and what it refuses to return, against synthetic stores |
+| `test_save_session.py` | deterministic saves, conflict choices, similarity stops, locking, atomic replacement, exact-id lookup |
 
 ```bash
 python3 tools/check_invariants.py            # add --history to scan every commit too
 python3 tools/check_detector_output.py
 python3 tools/test_platform_helpers.py
 python3 tools/test_detectors.py
+python3 tools/test_save_session.py
 cd skills/save-session && python3 scripts/check_flow_doc.py
 ```
 
@@ -31,9 +33,7 @@ Python and run unmodified on Windows (CI's `windows-latest` job runs this exact 
 There used to be a full prompt-level harness here — seeded run directories, a launcher, a grader,
 and wrappers for the Antigravity/OpenCode/Codex CLIs. It was deleted deliberately: it needed five
 authenticated CLIs and hours per run, it kept generating its own bugs, and its output was a
-pass-rate table that no longer belongs in the docs (the README states coverage instead).
-
-The pass-rate table it produced no longer belongs in the docs; the README states coverage instead.
-It is not kept anywhere: if `SKILL.md`'s behaviour or a detector heuristic changes enough to need
-one, write a small harness for that question rather than restoring this one, whose defects are
-described in the commit message.
+pass-rate table that no longer belongs in the docs. `AGENTS.md` records the durable validation
+scope instead. If `SKILL.md`'s behaviour or a detector heuristic changes enough to need a live
+exercise, write a small harness for that question rather than restoring the old one, whose defects
+are described in the commit message.

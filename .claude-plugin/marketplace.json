@@ -9,7 +9,7 @@
       "name": "save-session",
       "source": "./",
       "description": "Save, list, and resume AI coding-agent sessions by project title \u2014 one ledger per harness: Pi, Claude Code, Codex, Antigravity, OpenCode.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "license": "MIT",
       "homepage": "https://github.com/jemshit/save-session",
       "repository": "https://github.com/jemshit/save-session",
